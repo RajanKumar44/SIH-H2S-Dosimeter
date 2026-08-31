@@ -1,0 +1,79 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# ML model files (large binaries - regenerate with demo_simulator.py)
+software/ml_pipeline/models/*.pkl
+
+# Generated datasets (CSV) - regenerate with dataset_builder.py or demo_simulator.py
+software/ml_pipeline/datasets/*.csv
+
+# Generated result plots (regenerate with model_evaluator.py)
+software/ml_pipeline/results/*.png
+software/ml_pipeline/results/*.jpg
+
+# Debug images
+debug_roi.jpg
+software/ml_pipeline/debug_roi.jpg
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment files (NEVER commit secrets)
+.env
+.env.*
+*.env
+secrets.json
+config.local.json
+
+# Node / JS
+node_modules/
+.next/
+dist/
+.nuxt/
+
+# Flutter
+software/mobile_app/.dart_tool/
+software/mobile_app/.flutter-plugins
+software/mobile_app/.flutter-plugins-dependencies
+software/mobile_app/build/
+software/mobile_app/.packages
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Large data files (the ZIP dataset stays local)
+*.zip
+archive/
+
+# OS
+.DS_Store
+desktop.ini
