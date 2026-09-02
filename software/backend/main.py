@@ -10,16 +10,51 @@ import sys
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from datetime import date
 
 from database import get_db, init_db
 from auth import verify_password, create_access_token, hash_password, get_current_officer
 import models, schemas
+from config import CORS_ORIGINS
 from routes import workers, readings, alerts, reports, dashboard
+
+log = logging.getLogger(__name__)
+
+
+# ── Lifespan (startup / shutdown) ────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize DB tables and create the default admin if none exists."""
+    init_db()
+    db = next(get_db())
+    try:
+        existing = db.query(models.SafetyOfficer).filter(
+            models.SafetyOfficer.username == "admin"
+        ).first()
+        if not existing:
+            admin = models.SafetyOfficer(
+                username="admin",
+                hashed_password=hash_password("admin123"),
+                full_name="System Administrator",
+                role="admin",
+            )
+            db.add(admin)
+            db.commit()
+            print("[STARTUP] Default admin created: admin / admin123")
+        else:
+            print("[STARTUP] Database ready.")
+    finally:
+        db.close()
+    yield
+
 
 # ── App setup ───────────────────────────────────────────────
 app = FastAPI(
@@ -31,12 +66,14 @@ app = FastAPI(
     ),
     version="1.0.0",
     contact={"name": "DSCE SIH Team", "url": "https://github.com/RajanKumar44/SIH-H2S-Dosimeter"},
+    lifespan=lifespan,
 )
 
-# Allow all origins for dev (restrict in production)
+# CORS — restrict to configured origins (CORS_ORIGINS env var; defaults to the
+# local Vite dev server). Avoid "*" together with credentials.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,10 +122,11 @@ def get_me(officer: models.SafetyOfficer = Depends(get_current_officer)):
 def health_check(db: Session = Depends(get_db)):
     """Health check endpoint for deployment monitoring."""
     try:
-        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db.execute(text("SELECT 1"))
         db_status = "ok"
     except Exception as e:
-        db_status = f"error: {e}"
+        log.error("Health check DB error: %s", e)
+        db_status = "error"
     return {
         "status": "ok",
         "database": db_status,
@@ -106,29 +144,3 @@ def root():
         "redoc": "http://localhost:8000/redoc",
         "project": "SIH26118 - DSCE",
     }
-
-
-# ── Startup ──────────────────────────────────────────────────
-@app.on_event("startup")
-def on_startup():
-    """Initialize DB tables and create default admin if not exists."""
-    init_db()
-    db = next(get_db())
-    try:
-        existing = db.query(models.SafetyOfficer).filter(
-            models.SafetyOfficer.username == "admin"
-        ).first()
-        if not existing:
-            admin = models.SafetyOfficer(
-                username="admin",
-                hashed_password=hash_password("admin123"),
-                full_name="System Administrator",
-                role="admin",
-            )
-            db.add(admin)
-            db.commit()
-            print("[STARTUP] Default admin created: admin / admin123")
-        else:
-            print("[STARTUP] Database ready.")
-    finally:
-        db.close()

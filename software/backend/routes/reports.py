@@ -11,7 +11,11 @@ from database import get_db
 from auth import get_current_officer
 import models
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+router = APIRouter(
+    prefix="/reports",
+    tags=["Reports"],
+    dependencies=[Depends(get_current_officer)],
+)
 
 
 def _generate_pdf(worker: models.Worker, readings: list, report_date: str) -> bytes:
@@ -175,7 +179,6 @@ def _generate_pdf(worker: models.Worker, readings: list, report_date: str) -> by
 def get_worker_report_pdf(
     worker_id: str,
     shift_date: Optional[str] = None,
-    _: models.SafetyOfficer = Depends(get_current_officer),
     db: Session = Depends(get_db),
 ):
     """Download a DGMS-format PDF compliance report for a worker."""

@@ -4,7 +4,6 @@ auth.py
 JWT authentication for safety officers / admins.
 Default credentials (dev): admin / admin123
 """
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -16,11 +15,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 import models
-
-# ── Config ─────────────────────────────────────────────────
-SECRET_KEY = os.getenv("SECRET_KEY", "sih2026-h2s-dosimeter-secret-key-change-in-prod")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "480"))  # 8-hour shift
+from config import SECRET_KEY, JWT_ALGORITHM as ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 

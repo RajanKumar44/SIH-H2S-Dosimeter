@@ -5,10 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
+from auth import get_current_officer
 import models, schemas
 from routes.alerts import check_and_create_alert
 
-router = APIRouter(prefix="/readings", tags=["Readings"])
+# All reading endpoints require an authenticated officer. The future mobile
+# ingestion client (Phase 4) will authenticate as an officer/service account.
+router = APIRouter(
+    prefix="/readings",
+    tags=["Readings"],
+    dependencies=[Depends(get_current_officer)],
+)
 
 # DGMS thresholds (ppm.hr cumulative)
 THRESHOLD_WARNING = 60.0   # 75% of 8-hr TWA limit (10ppm x 8hr = 80 ppm.hr)

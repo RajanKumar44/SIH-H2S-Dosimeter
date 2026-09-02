@@ -67,7 +67,14 @@ export default function Alerts() {
               {alerts.map(a => (
                 <tr key={a.id}>
                   <td><span className={`badge ${a.alert_type}`}>{typeIcon[a.alert_type] || ""} {a.alert_type}</span></td>
-                  <td style={{ fontWeight: 600 }}>Worker #{a.worker_id}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {a.worker_code || `#${a.worker_id}`}
+                    {a.worker_name && (
+                      <div style={{ fontWeight: 400, fontSize: 12, color: "var(--text-muted)" }}>
+                        {a.worker_name}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ fontWeight: 600 }}>{a.dose_at_alert.toFixed(1)}</td>
                   <td>{a.threshold}</td>
                   <td style={{ maxWidth: 300, fontSize: 12 }}>{a.message}</td>

@@ -10,6 +10,7 @@ Tables:
   alerts           - Threshold breach alerts
 """
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import Column, Integer, Float, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from database import Base
@@ -102,3 +103,13 @@ class Alert(Base):
 
     worker = relationship("Worker", back_populates="alerts")
     reading = relationship("Reading", back_populates="alert")
+
+    @property
+    def worker_code(self) -> Optional[str]:
+        """Human-facing worker ID (e.g. 'WRK001') from the linked worker."""
+        return self.worker.worker_id if self.worker else None
+
+    @property
+    def worker_name(self) -> Optional[str]:
+        """Full name from the linked worker, for display in alert lists."""
+        return self.worker.full_name if self.worker else None

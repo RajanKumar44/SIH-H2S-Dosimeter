@@ -4,17 +4,23 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_officer
+from auth import get_current_officer, require_admin
 import models, schemas
 
-router = APIRouter(prefix="/workers", tags=["Workers"])
+# Every worker endpoint requires an authenticated officer. Roster mutations
+# (create / update / deactivate) additionally require the admin role.
+router = APIRouter(
+    prefix="/workers",
+    tags=["Workers"],
+    dependencies=[Depends(get_current_officer)],
+)
 
 
 @router.post("/", response_model=schemas.WorkerOut, status_code=status.HTTP_201_CREATED)
 def create_worker(
     payload: schemas.WorkerCreate,
     db: Session = Depends(get_db),
-    _: models.SafetyOfficer = Depends(get_current_officer),
+    _: models.SafetyOfficer = Depends(require_admin),
 ):
     """Register a new worker in the system."""
     existing = db.query(models.Worker).filter(models.Worker.worker_id == payload.worker_id).first()
@@ -59,7 +65,7 @@ def update_worker(
     worker_id: str,
     payload: schemas.WorkerUpdate,
     db: Session = Depends(get_db),
-    _: models.SafetyOfficer = Depends(get_current_officer),
+    _: models.SafetyOfficer = Depends(require_admin),
 ):
     """Update worker details."""
     worker = db.query(models.Worker).filter(models.Worker.worker_id == worker_id).first()
@@ -76,7 +82,7 @@ def update_worker(
 def deactivate_worker(
     worker_id: str,
     db: Session = Depends(get_db),
-    _: models.SafetyOfficer = Depends(get_current_officer),
+    _: models.SafetyOfficer = Depends(require_admin),
 ):
     """Soft-delete (deactivate) a worker."""
     worker = db.query(models.Worker).filter(models.Worker.worker_id == worker_id).first()

@@ -30,6 +30,14 @@ export default function Reports() {
 
   useEffect(() => { loadReport(); }, [workerId]);
 
+  async function handleDownload() {
+    try {
+      await api.downloadPdf(workerId);
+    } catch (e) {
+      alert("Download failed: " + e.message);
+    }
+  }
+
   const chartData = report?.readings?.length ? {
     labels: report.readings.map((r, i) => `#${i + 1}`),
     datasets: [
@@ -81,7 +89,7 @@ export default function Reports() {
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
           <button className="btn btn-primary" onClick={loadReport}>Refresh</button>
-          <button className="btn btn-outline" onClick={() => api.downloadPdf(workerId)}>
+          <button className="btn btn-outline" onClick={handleDownload}>
             Download PDF
           </button>
         </div>

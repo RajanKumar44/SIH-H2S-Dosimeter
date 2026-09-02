@@ -4,12 +4,10 @@ database.py
 SQLAlchemy database setup. Uses SQLite for development (zero-config).
 Switch to PostgreSQL for production by changing DATABASE_URL env variable.
 """
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-# SQLite for dev; override with env var for production (PostgreSQL)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./h2s_dosimeter.db")
+from config import DATABASE_URL
 
 # SQLite needs check_same_thread=False for FastAPI's async requests
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

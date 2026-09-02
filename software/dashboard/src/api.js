@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 let authToken = localStorage.getItem("h2s_token") || null;
 
@@ -72,9 +72,36 @@ export const api = {
   // Reports
   getWorkerReport: (id, date) =>
     request("GET", `/reports/worker/${id}/json${date ? `?shift_date=${date}` : ""}`),
-  downloadPdf: (id, date) => {
-    const url = `${API_BASE}/reports/worker/${id}/pdf${date ? `?shift_date=${date}` : ""}`;
-    window.open(url, "_blank");
+  // PDF download must be an authenticated fetch (window.open cannot send the
+  // Authorization header). Streams the response to a Blob and triggers a save.
+  downloadPdf: async (id, date) => {
+    const path = `/reports/worker/${id}/pdf${date ? `?shift_date=${date}` : ""}`;
+    const headers = { Accept: "application/pdf" };
+    if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+    const res = await fetch(`${API_BASE}${path}`, { method: "GET", headers });
+    if (res.status === 401) {
+      authToken = null;
+      localStorage.removeItem("h2s_token");
+      window.location.hash = "#/login";
+      throw new Error("Session expired — please log in again.");
+    }
+    if (res.status === 403) {
+      throw new Error("You do not have permission to download this report.");
+    }
+    if (!res.ok) {
+      throw new Error(`Report download failed (HTTP ${res.status})`);
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `DGMS_Report_${id}${date ? `_${date}` : ""}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   },
 
   // Health

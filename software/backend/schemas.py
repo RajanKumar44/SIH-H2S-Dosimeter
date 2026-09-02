@@ -99,6 +99,8 @@ class ReadingOut(BaseModel):
 class AlertOut(BaseModel):
     id: int
     worker_id: int
+    worker_code: Optional[str] = None   # e.g. "WRK001" (from linked worker)
+    worker_name: Optional[str] = None   # worker full name (from linked worker)
     reading_id: Optional[int]
     alert_type: str
     dose_at_alert: float

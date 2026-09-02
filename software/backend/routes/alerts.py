@@ -2,13 +2,17 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
 from auth import get_current_officer
 import models, schemas
 
-router = APIRouter(prefix="/alerts", tags=["Alerts"])
+router = APIRouter(
+    prefix="/alerts",
+    tags=["Alerts"],
+    dependencies=[Depends(get_current_officer)],
+)
 
 
 # ── Internal helper (called by readings.py) ─────────────────
@@ -61,7 +65,7 @@ def list_alerts(
     db: Session = Depends(get_db),
 ):
     """List all alerts. Filter by type or acknowledgement status."""
-    q = db.query(models.Alert)
+    q = db.query(models.Alert).options(joinedload(models.Alert.worker))
     if unacknowledged_only:
         q = q.filter(models.Alert.is_acknowledged == False)
     if alert_type:
@@ -75,7 +79,9 @@ def get_worker_alerts(worker_id: str, db: Session = Depends(get_db)):
     worker = db.query(models.Worker).filter(models.Worker.worker_id == worker_id).first()
     if not worker:
         raise HTTPException(status_code=404, detail=f"Worker '{worker_id}' not found.")
-    return db.query(models.Alert).filter(
+    return db.query(models.Alert).options(
+        joinedload(models.Alert.worker)
+    ).filter(
         models.Alert.worker_id == worker.id
     ).order_by(models.Alert.created_at.desc()).all()
 
