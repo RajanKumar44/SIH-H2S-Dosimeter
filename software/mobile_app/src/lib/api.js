@@ -36,18 +36,68 @@ function envBase() {
   return typeof v === "string" && v.trim() ? v.trim() : "";
 }
 
+const BACKEND_PORT = "8000";
+
+/** A bare IPv4 literal, e.g. 192.168.1.5 — a LAN address, not a tunnel host. */
+function isIpHost(hostname) {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+}
+
+/**
+ * Derive the backend URL for port-prefixed HTTPS preview hosts.
+ *
+ * The phone camera needs a secure context, so on a real device the app is
+ * usually reached through a tunnel whose hostname encodes the port, e.g.
+ *
+ *   https://5174-abc123.sandbox.novita.ai   (app)
+ *   https://8000-abc123.sandbox.novita.ai   (backend)
+ *
+ * Appending ":8000" to such a host — what the old code did for every non-local
+ * hostname — produced an unreachable URL, and calling an http:// backend from
+ * an https:// page is blocked as mixed content anyway. Rewriting the port
+ * prefix keeps the whole flow on HTTPS and makes the camera demo work without
+ * anyone editing Settings.
+ *
+ * @returns {string} full origin, or "" if the host is not port-prefixed.
+ */
+export function derivePreviewApiBase(hostname, protocol = "https:") {
+  const m = /^(\d{2,5})-(.+)$/.exec(hostname || "");
+  if (!m) return "";
+  return `${protocol}//${BACKEND_PORT}-${m[2]}`;
+}
+
 export function getApiBase() {
   const stored = localStorage.getItem(BASE_KEY);
   if (stored && stored.trim()) return stored.replace(/\/+$/, "");
   const fromEnv = envBase();
   if (fromEnv) return fromEnv.replace(/\/+$/, "");
-  // Phones cannot reach the laptop's "localhost". When the app is served from
-  // a LAN host, default the API to the same host on the backend port.
+
   const { hostname, protocol } = window.location;
-  if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1") {
-    return `${protocol}//${hostname}:8000`;
+  if (!hostname || hostname === "localhost" || hostname === "127.0.0.1") {
+    return DEFAULT_BASE;
   }
-  return DEFAULT_BASE;
+
+  // HTTPS preview/tunnel host that encodes the port (Codespaces, sandbox URLs).
+  const preview = derivePreviewApiBase(hostname, protocol);
+  if (preview) return preview;
+
+  // Phones cannot reach the laptop's "localhost". When the app is served from a
+  // LAN IP, default the API to the same host on the backend port.
+  if (isIpHost(hostname)) return `${protocol}//${hostname}:${BACKEND_PORT}`;
+
+  // Some other named host — a guessed port would very likely be wrong, so
+  // point at the same origin and let Settings override it.
+  return `${protocol}//${hostname}`;
+}
+
+/**
+ * True when an https:// page is configured to call an http:// API — the browser
+ * blocks those requests as mixed content before they leave the device, which
+ * looks exactly like "the server is down". Surfaced in Settings.
+ */
+export function hasMixedContentIssue(base = getApiBase()) {
+  if (typeof window === "undefined") return false;
+  return window.location.protocol === "https:" && base.startsWith("http://");
 }
 
 export function setApiBase(base) {

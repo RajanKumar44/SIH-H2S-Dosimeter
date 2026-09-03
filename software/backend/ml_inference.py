@@ -75,18 +75,37 @@ def model_status() -> dict:
     heavy beyond a dependency probe. Used by the route to answer 503 early and
     by tests to skip cleanly.
     """
+    return _probe_status()
+
+
+# Whether the heavy dependencies import successfully cannot change while the
+# process is alive, so probe them once. The model FILE can appear at runtime
+# (the operator trains it while the server is up), so that is re-checked on
+# every call — this keeps /health cheap without ever caching a stale "no model".
+_DEPS_CACHE: Optional[dict] = None
+
+
+def _probe_dependencies() -> dict:
+    global _DEPS_CACHE
+    if _DEPS_CACHE is None:
+        missing = []
+        for mod in ("cv2", "numpy", "joblib", "sklearn", "pandas"):
+            try:
+                __import__(mod)
+            except Exception:                               # noqa: BLE001
+                missing.append(mod)
+        _DEPS_CACHE = {"present": not missing, "missing": missing}
+    return _DEPS_CACHE
+
+
+def _probe_status() -> dict:
+    deps = _probe_dependencies()
     status = {
         "model_path": str(_MODEL_PATH),
         "model_present": _MODEL_PATH.is_file(),
-        "dependencies_present": True,
-        "missing": [],
+        "dependencies_present": deps["present"],
+        "missing": list(deps["missing"]),
     }
-    for mod in ("cv2", "numpy", "joblib", "sklearn", "pandas"):
-        try:
-            __import__(mod)
-        except Exception:                                   # noqa: BLE001
-            status["dependencies_present"] = False
-            status["missing"].append(mod)
 
     status["available"] = status["model_present"] and status["dependencies_present"]
     if not status["model_present"]:

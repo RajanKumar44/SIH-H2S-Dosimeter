@@ -171,6 +171,30 @@ def dashboard_new(db, today):
             "warn": warn, "danger": danger, "rows": rows}
 
 
+
+def check_cors():
+    """Verify the default CORS origins include both browser clients."""
+    import config
+
+    expected = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    }
+
+    actual = {
+        origin.strip()
+        for origin in config._DEFAULT_CORS_ORIGINS.split(",")
+        if origin.strip()
+    }
+
+    check(
+        "CORS defaults include dashboard + mobile origins",
+        expected.issubset(actual),
+        f"missing={sorted(expected - actual)}",
+    )
+
 def main():
     print("\n" + "=" * 60)
     print("  OFFLINE CHECKS (no jose/bcrypt/reportlab required)")
@@ -211,6 +235,9 @@ def main():
     check("AlertOut still includes integer worker_id (compat)", isinstance(dumped.get("worker_id"), int))
 
     db.close()
+
+    # ── C. CORS admission ──────────────────────────────────
+    check_cors()
 
     total = PASS + FAIL
     print("\n" + "=" * 60)

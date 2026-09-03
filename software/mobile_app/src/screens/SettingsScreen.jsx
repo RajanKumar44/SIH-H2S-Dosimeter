@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { ApiError, api, getApiBase, setApiBase } from "../lib/api";
+import {
+  ApiError,
+  api,
+  getApiBase,
+  hasMixedContentIssue,
+  setApiBase,
+} from "../lib/api";
 import { THRESHOLDS, UNIT } from "../lib/dose";
 
 /**
@@ -18,12 +24,21 @@ export default function SettingsScreen({ user, onLogout }) {
     try {
       setApiBase(base);
       const h = await api.health();
+      if (h?.status !== "ok") {
+        setProbe({ ok: false, text: `Server replied but reported "${h?.status}".` });
+        return;
+      }
+      // /health also reports whether the ML scan path is ready. Show it here so
+      // a missing trained model is caught BEFORE a scan is attempted, instead
+      // of surfacing as a 503 mid-demo.
+      const mlReady = h.ml?.available !== false;
       setProbe({
-        ok: h?.status === "ok",
-        text:
-          h?.status === "ok"
-            ? `Connected · database ${h.database} · API v${h.version}`
-            : `Server replied but reported "${h?.status}".`,
+        ok: mlReady,
+        text: mlReady
+          ? `Connected · database ${h.database} · AI model ready · API v${h.version}`
+          : `Connected, but the AI model is NOT ready — scans will fail. ${
+              h.ml?.hint || "Train the model in software/ml_pipeline."
+            }`,
       });
     } catch (err) {
       setProbe({
@@ -34,6 +49,8 @@ export default function SettingsScreen({ user, onLogout }) {
       setBusy(false);
     }
   }
+
+  const mixedContent = hasMixedContentIssue(base);
 
   return (
     <div className="screen">
@@ -63,6 +80,13 @@ export default function SettingsScreen({ user, onLogout }) {
             "Save & test connection"
           )}
         </button>
+        {mixedContent && (
+          <p className="inline-warn" role="alert">
+            This page is served over HTTPS but the API address uses{" "}
+            <code>http://</code>. The browser will block those requests as mixed
+            content. Use an <code>https://</code> backend address.
+          </p>
+        )}
         {probe && (
           <p className={probe.ok ? "inline-ok" : "inline-error"} role="status">
             {probe.text}

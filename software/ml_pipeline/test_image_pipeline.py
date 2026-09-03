@@ -21,11 +21,13 @@ found in the Step-1 audit:
 Run:
   python test_image_pipeline.py            # uses models/h2s_model.pkl if present
   python test_image_pipeline.py --no-model # colour/ROI checks only
+  pytest test_image_pipeline.py            # also works (see the fixture below)
 
 Predictions are checked for stability, ordering and bounded error — never
 against exact values, because demo_simulator.py is unseeded (see README).
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -70,10 +72,41 @@ def check(name, condition, detail=""):
         print(f"  [FAIL] {name}   << {detail}")
         FAIL += 1
         FAILURES.append(f"{name}  {detail}")
+        # Under pytest a printed [FAIL] would otherwise be swallowed and the
+        # test would report green. Raise so `pytest` and the script agree on
+        # what "passing" means.
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            raise AssertionError(f"{name}  {detail}")
 
 
 def section(title):
     print(f"\n{'=' * 66}\n  {title}\n{'=' * 66}")
+
+
+# ── pytest support ──────────────────────────────────────────────────────────
+#
+# This file is primarily a self-contained script (``main()`` below), but CI and
+# `pytest software/` collect it too. Two tests take a ``model_path`` argument,
+# which pytest tried to resolve as a fixture and errored on. Provide it as a
+# real fixture that skips cleanly when the model has not been trained yet
+# (``models/`` is git-ignored), so `pytest` and the script agree.
+
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / "models" / "h2s_model.pkl"
+
+try:
+    import pytest
+
+    @pytest.fixture
+    def model_path():
+        """Path to the trained model, or skip if it has not been generated."""
+        if not DEFAULT_MODEL_PATH.is_file():
+            pytest.skip(
+                f"{DEFAULT_MODEL_PATH.name} not found — generate it with: "
+                "cd software/ml_pipeline && python demo_simulator.py"
+            )
+        return DEFAULT_MODEL_PATH
+except ImportError:                                         # pytest not installed
+    pass
 
 
 # ── Synthetic scene rendering ───────────────────────────────────────────────

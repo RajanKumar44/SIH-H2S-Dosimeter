@@ -23,7 +23,7 @@ from datetime import date
 from database import get_db, init_db
 from auth import verify_password, create_access_token, hash_password, get_current_officer
 import models, schemas
-from config import CORS_ORIGINS
+from config import CORS_ORIGINS, CORS_ORIGIN_REGEX
 from routes import workers, readings, alerts, reports, dashboard
 
 log = logging.getLogger(__name__)
@@ -70,10 +70,13 @@ app = FastAPI(
 )
 
 # CORS — restrict to configured origins (CORS_ORIGINS env var; defaults to the
-# local Vite dev server). Avoid "*" together with credentials.
+# dashboard :5173 AND the mobile PWA :5174 dev servers). In development a
+# private-LAN regex is also allowed so the field app works from a real phone;
+# see config.CORS_ORIGIN_REGEX. Avoid "*" together with credentials.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -120,16 +123,41 @@ def get_me(officer: models.SafetyOfficer = Depends(get_current_officer)):
 # ── Health check ─────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 def health_check(db: Session = Depends(get_db)):
-    """Health check endpoint for deployment monitoring."""
+    """
+    Health check endpoint for deployment monitoring.
+
+    Also reports whether the ML scan path (``POST /readings/scan``) is ready,
+    so the mobile app's Settings screen can warn the operator *before* a scan
+    is attempted rather than surfacing a 503 mid-demo. The probe is lazy and
+    never imports OpenCV/scikit-learn into this route.
+    """
     try:
         db.execute(text("SELECT 1"))
         db_status = "ok"
     except Exception as e:
         log.error("Health check DB error: %s", e)
         db_status = "error"
+
+    # Import here so the rest of the app (and the offline tests) never pull in
+    # the ML bridge just to answer /health.
+    try:
+        from ml_inference import model_status
+        st = model_status()
+        ml = {
+            "available": st["available"],
+            "model_present": st["model_present"],
+            "dependencies_present": st["dependencies_present"],
+        }
+        if not st["available"] and st.get("hint"):
+            ml["hint"] = st["hint"]
+    except Exception as e:                                  # noqa: BLE001
+        log.error("Health check ML probe error: %s", e)
+        ml = {"available": False, "hint": f"ML probe failed: {e}"}
+
     return {
         "status": "ok",
         "database": db_status,
+        "ml": ml,
         "date": date.today().isoformat(),
         "version": "1.0.0",
     }
