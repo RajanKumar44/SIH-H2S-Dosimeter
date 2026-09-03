@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "./api";
 import Dashboard from "./pages/Dashboard";
 import Workers from "./pages/Workers";
+import SubmitReading from "./pages/SubmitReading";
 import Alerts from "./pages/Alerts";
 import Reports from "./pages/Reports";
 import Login from "./pages/Login";
@@ -15,6 +16,7 @@ function Sidebar({ page, onNavigate, onLogout, user }) {
   const items = [
     { id: "dashboard", label: "Dashboard", icon: "\uD83D\uDCCA" },
     { id: "workers",   label: "Workers",   icon: "\uD83D\uDC77" },
+    { id: "submit",    label: "Submit Reading", icon: "\uD83E\uDDEA" },
     { id: "alerts",    label: "Alerts",    icon: "\uD83D\uDD14" },
     { id: "reports",   label: "Reports",   icon: "\uD83D\uDCC4" },
   ];
@@ -88,6 +90,7 @@ export default function App() {
   const pages = {
     dashboard: <Dashboard />,
     workers: <Workers />,
+    submit: <SubmitReading user={user} />,
     alerts: <Alerts />,
     reports: <Reports />,
   };
