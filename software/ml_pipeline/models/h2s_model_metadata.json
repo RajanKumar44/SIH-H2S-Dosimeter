@@ -1,0 +1,50 @@
+{
+  "model_name": "RandomForest",
+  "features": [
+    "delta_E_corr",
+    "L_corr",
+    "a_corr",
+    "b_corr",
+    "H",
+    "S",
+    "V",
+    "R",
+    "G",
+    "B",
+    "delta_E",
+    "C_star",
+    "h_angle",
+    "darkness",
+    "B_G_ratio",
+    "log_delta_E"
+  ],
+  "target": "cumulative_dose_ppm_hr",
+  "n_train": 240,
+  "n_test": 60,
+  "cv_r2": 0.8883174531533056,
+  "test_r2": 0.8975941134305377,
+  "test_rmse": 10.75312221744006,
+  "test_mae": 8.234801299844214,
+  "all_models": {
+    "PolyRidge_deg2": {
+      "cv_r2_mean": 0.8580654428930528,
+      "cv_r2_std": 0.0776324905703025
+    },
+    "PolyRidge_deg3": {
+      "cv_r2_mean": -1.8288020600910901,
+      "cv_r2_std": 5.3004984255190895
+    },
+    "SVR_rbf": {
+      "cv_r2_mean": 0.8836805367582414,
+      "cv_r2_std": 0.04342087399933019
+    },
+    "GradientBoosting": {
+      "cv_r2_mean": 0.8664240876663014,
+      "cv_r2_std": 0.06143961571528623
+    },
+    "RandomForest": {
+      "cv_r2_mean": 0.8883174531533056,
+      "cv_r2_std": 0.04724992942919036
+    }
+  }
+}
