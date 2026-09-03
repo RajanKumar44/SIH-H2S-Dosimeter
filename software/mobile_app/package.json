@@ -1,0 +1,23 @@
+{
+  "name": "h2s-mobile-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "SIH26118 field mobile app — capture an H2S dosimeter strip and get an AI dose reading.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "lint": "oxlint",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.0",
+    "oxlint": "^1.79.0",
+    "vite": "^8.2.2"
+  }
+}

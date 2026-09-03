@@ -1,0 +1,13 @@
+{
+  "name": "H2S Field Scanner — SIH26118",
+  "short_name": "H2S Scanner",
+  "description": "Capture a passive colorimetric H2S dosimeter strip and get an AI-quantified cumulative dose.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
