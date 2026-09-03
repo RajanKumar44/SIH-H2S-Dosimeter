@@ -39,7 +39,7 @@ do not add `scikit-learn`/`opencv` to the backend.
 |-----|-------|------|
 | `software/ml_pipeline/` | Python, OpenCV, NumPy, scikit-learn, pandas, matplotlib | Color science + dose regression. Trains `models/h2s_model.pkl`. |
 | `software/backend/` | FastAPI, SQLAlchemy 2.0, SQLite(dev)/PostgreSQL(prod), JWT (bcrypt + python-jose), reportlab | REST API, DB, PDF reports, alerting. |
-| `software/dashboard/` | React 19, Vite 8, Chart.js, react-chartjs-2 | Admin SPA (login, workers, alerts, reports). |
+| `software/dashboard/` | React 19, Vite 8, Chart.js, react-chartjs-2 | Admin SPA (login, dashboard, workers, submit reading, alerts, reports). |
 | `software/mobile_app/` | Flutter + TFLite (**not yet created** — only referenced in `.gitignore`) | Phase 4, planned. |
 
 ### ML pipeline files (`software/ml_pipeline/`)
@@ -98,7 +98,10 @@ The dashboard reads the backend URL from `VITE_API_BASE` (defaults to `http://lo
   **duplicated** as module constants in `routes/readings.py`, `routes/dashboard.py`, and `seed.py` — change all of them together.
 - **Color science is paper-derived.** RGB→Lab and ΔE2000 formulas follow ACS paper *se3c02793*. `BASELINE_LAB` and
   `REFERENCE_PATCHES_LAB` in `image_processor.py` are calibration constants — treat changes as recalibration, not refactors.
-- **R² target is > 0.85** (Phase 1 achieved 0.8630). If a change drops test R² below target, `model_trainer.py` prints a `[WARN]`.
+- **R² target is > 0.85.** If a change drops test R² below target, `model_trainer.py` prints a `[WARN]`. Note that
+  `demo_simulator.py` is **not reproducible run-to-run** — `simulate_strip_color()` uses an unseeded RNG and the dose
+  array is shuffled with an unseeded global shuffle, so R² varies (observed ≈0.89–0.93) and the winning model
+  alternates between RandomForest and PolyRidge_deg2. Quote the run you actually performed, not a fixed figure.
 - **Windows UTF-8 guard:** Python entry-point scripts start with `sys.stdout.reconfigure(encoding='utf-8', ...)`. Keep this in new CLI scripts (the app runs on Windows machines too).
 - **Config via env vars** — backend config is centralized in `config.py` and documented in `software/backend/.env.example`: `APP_ENV`, `SECRET_KEY`, `JWT_ALGORITHM`, `TOKEN_EXPIRE_MINUTES`, `DATABASE_URL`, `CORS_ORIGINS`. Defaults are **dev-only**; when `APP_ENV=production` the app **refuses to start** unless `SECRET_KEY` is set (no insecure fallback in prod). The dashboard uses `VITE_API_BASE` (see `software/dashboard/.env.example`).
 - **Do not commit** secrets (`.env`), databases (`*.db`), trained models (`*.pkl`), generated datasets/plots (`*.csv`, `results/*.png`), or the large `archive.zip`. All are git-ignored; models/datasets are regenerated via `demo_simulator.py`.
@@ -109,18 +112,27 @@ The dashboard reads the backend URL from `VITE_API_BASE` (defaults to `http://lo
 - **Auth model (enforced).** Safety officers/admins are the only login accounts; **workers are data subjects, not user accounts** (so there is no per-worker login/IDOR surface). All data endpoints — `/workers`, `/readings`, `/alerts`, `/reports`, `/dashboard` — require a valid JWT via a **router-level** `Depends(get_current_officer)` (→401). Worker-roster **mutations** (`POST`/`PUT`/`DELETE /workers/...`) additionally require the **admin** role via `require_admin` (→403). Public endpoints: `/`, `/health`, `POST /auth/login`, and Swagger `/docs`.
 - **CORS** is restricted to `CORS_ORIGINS` (default `http://localhost:5173,http://127.0.0.1:5173`), **not** `*`. Set it to the deployed dashboard origin in production.
 - **PDF report download** must be an authenticated `fetch` (Authorization header) that streams the response to a Blob — a plain `window.open()` would drop the JWT. The dashboard's `downloadPdf` in `src/api.js` does this and handles 401/403.
-- **Stale docs:** `README.md` (root) and `software/README.md` still label backend/dashboard as "Upcoming" and reference a
-  `docs/` folder that does not exist. Git history is the source of truth for status. Prefer updating docs over trusting them.
+- **Docs are current** as of the documentation-cleanup commit: root `README.md`, `software/README.md`,
+  `software/ml_pipeline/README.md` and `software/dashboard/README.md` all describe the shipped state. There is no
+  `docs/` directory and no reference to one. Keep them in step with the code, and prefer git history when in doubt.
+- **No frontend test suite.** The dashboard has no test runner; verification is `npm run build`, `npm run lint`
+  (0 errors, 6 pre-existing warnings) plus manual browser checks. Only the backend has automated tests.
+- **No DB migrations.** Schema comes from `create_all()` at startup, so an existing SQLite file will not gain new
+  columns after a model change — delete it or re-run `seed.py`.
 - `mobile_app/` does not exist yet — only `.gitignore` entries anticipate it.
 
 ## Roadmap
 
 | Phase | Component | Status |
 |-------|-----------|--------|
-| 1 | ML pipeline (image processing + dose regression) | ✅ Complete — test R² 0.8630, RMSE 11.37, MAE 8.89; best model RandomForest (CV R² 0.9152) |
-| 2 | Backend API (FastAPI + DB + JWT + PDF reports) | ✅ Complete — 32/32 API tests passing |
-| 3 | Admin dashboard (React + Chart.js) | ✅ Complete — login, workers, alerts, reports pages |
+| 1 | ML pipeline (image processing + dose regression) | ✅ Complete — synthetic-data R² ≈0.89–0.93 (see caveat above); no real strip photos yet |
+| 2 | Backend API (FastAPI + DB + JWT + PDF reports) | ✅ Complete — 49/49 `test_api.py`, 16/16 `test_offline_checks.py` |
+| 3 | Admin dashboard (React + Chart.js) | ✅ Complete — login, dashboard, workers, submit reading, alerts, reports |
 | 4 | Mobile app (Flutter + on-device TFLite inference) | 📋 Not started — largest remaining piece |
+
+Also genuinely missing, verified against the tree: real strip-photo dataset (`sample_images/` is empty);
+`env_compensation` output is not wired into the dose path; no Dockerfile/CI/CD; no Alembic migrations; no frontend
+test runner; worker edit/deactivate exists in the API but not the dashboard UI; `POST /auth/login` is unthrottled.
 
 Likely next work: build the Flutter app (Phase 4), set a production `SECRET_KEY`/`CORS_ORIGINS` and migrate to PostgreSQL,
 and wire `env_compensation` output into the on-device prediction path.

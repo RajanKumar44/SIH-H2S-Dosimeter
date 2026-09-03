@@ -28,7 +28,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from image_processor import rgb_to_lab, compute_delta_E2000, BASELINE_LAB
+from image_processor import rgb_to_lab, rgb_to_hsv, compute_delta_E2000, BASELINE_LAB
 from model_trainer import engineer_features, train, predict, MODELS_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -76,19 +76,12 @@ def simulate_strip_color(dose_ppm_hr: float, noise_std: float = 0.03) -> dict:
     bL, ba, bb = BASELINE_LAB
     delta_E = compute_delta_E2000(bL, ba, bb, L, a, b)
 
-    # HSV
-    r_n, g_n, b_n = R/255, G/255, B/255
-    V = max(r_n, g_n, b_n)
-    diff = V - min(r_n, g_n, b_n)
-    S = diff / V if V > 0 else 0.0
-    if diff == 0:
-        H = 0.0
-    elif V == r_n:
-        H = 60 * ((g_n - b_n) / diff % 6)
-    elif V == g_n:
-        H = 60 * ((b_n - r_n) / diff + 2)
-    else:
-        H = 60 * ((r_n - g_n) / diff + 4)
+    # HSV in the CANONICAL convention (H degrees 0-360, S/V 0-1) via the shared
+    # helper in image_processor. Using the same function that runs at inference
+    # time is what keeps training features and real-photo features on one
+    # scale — an independent reimplementation here is how the previous
+    # half-scale hue mismatch arose.
+    H, S, V = rgb_to_hsv(R, G, B)
 
     return {
         "R": round(R, 3), "G": round(G, 3), "B": round(B, 3),
@@ -99,6 +92,7 @@ def simulate_strip_color(dose_ppm_hr: float, noise_std: float = 0.03) -> dict:
         "delta_E_corr": round(delta_E, 4),
         "confidence": 1.0,
     }
+
 
 
 def generate_synthetic_dataset(

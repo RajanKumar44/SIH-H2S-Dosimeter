@@ -43,8 +43,13 @@ CSV_COLUMNS = [
     "L", "a_star", "b_star", "delta_E",
     "H", "S", "V",
     "L_corr", "a_corr", "b_corr", "delta_E_corr",
-    "confidence", "notes",
+    "confidence",
+    # ROI diagnostics — let you filter out samples whose strip was not located
+    # before training on them. model_trainer ignores columns it does not use.
+    "roi_detected", "roi_method", "roi_confidence",
+    "notes",
 ]
+
 
 
 def parse_label_file(label_path: str) -> Dict[str, dict]:
@@ -180,6 +185,9 @@ def process_image_folder(
                 "b_corr": round(reading.b_corr, 4),
                 "delta_E_corr": round(reading.delta_E_corr, 4),
                 "confidence": round(reading.confidence, 2),
+                "roi_detected": reading.roi_detected,
+                "roi_method": reading.roi_method,
+                "roi_confidence": round(reading.roi_confidence, 3),
                 "notes": notes,
             }
             rows.append(row)

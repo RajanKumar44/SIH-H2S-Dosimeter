@@ -117,6 +117,48 @@ class AcknowledgeRequest(BaseModel):
     acknowledged_by: str
 
 
+# ─────────────────────── Scan (image upload) ─────────────────────
+
+class ScanReadingOut(BaseModel):
+    """
+    Response for ``POST /readings/scan``.
+
+    Carries the stored reading plus the ML and alert details the dashboard
+    needs, so the client never has to re-derive an exposure band. Both
+    ``exposure_status`` and ``alert`` come from the backend's own threshold
+    evaluation.
+    """
+    reading: ReadingOut
+
+    # Worker (echoed so the UI need not re-fetch the roster)
+    worker_code: str
+    worker_name: str
+
+    # Colour science
+    delta_E: float
+    delta_E_corr: Optional[float] = None
+
+    # Model output
+    dose_ppm_hr: float
+    model_confidence: Optional[str] = None
+    model_name: Optional[str] = None
+
+    # Image-quality diagnostics — surface when a reading should be retaken
+    image_confidence: Optional[float] = None
+    roi_detected: bool = True
+    roi_method: Optional[str] = None
+    roi_confidence: Optional[float] = None
+    lighting_corrected: bool = False
+
+    # Backend's threshold verdict. "safe" | "warning" | "danger" | "critical"
+    exposure_status: str
+    alert_triggered: bool = False
+    alert: Optional[AlertOut] = None
+
+    scan_timestamp: datetime
+
+
+
 # ─────────────────────────── Dashboard ───────────────────────
 
 class WorkerSummary(BaseModel):

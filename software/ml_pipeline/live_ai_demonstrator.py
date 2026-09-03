@@ -124,8 +124,13 @@ def main():
         print(f"  {name:<25} | {m['cv_r2_mean']:<20.4f} | {m['cv_r2_std']:<12.4f}")
     print("  " + "─" * 70)
     print(f"  🏆 Best Performing Model : {metadata['model_name']}")
-    print(f"  🎯 Test Set R² Accuracy  : {metadata['test_r2']:.4f} (> 0.85 target met)")
+    # Report the target honestly — demo_simulator is unseeded, so R² varies
+    # between runs and can land below 0.85.
+    _r2 = metadata['test_r2']
+    _verdict = "target met" if _r2 >= 0.85 else "BELOW the 0.85 target on this run"
+    print(f"  🎯 Test Set R² Accuracy  : {_r2:.4f} ({_verdict})")
     print(f"  📉 Test Set RMSE Error   : {metadata['test_rmse']:.2f} ppm·hr")
+
 
     # -------------------------------------------------------------------------
     # STEP 4: Live Prediction on our 4 Test Scenarios
@@ -162,15 +167,35 @@ def main():
 
     import urllib.request
     import urllib.error
+    import urllib.parse
 
-    backend_url = "http://localhost:8000"
-    
+    backend_url = os.getenv("H2S_API_BASE", "http://localhost:8000")
+    # Dev credentials, overridable by env var. The backend guards /readings/
+    # with a router-level JWT dependency, so an unauthenticated POST returns
+    # 401 — this script used to send no Authorization header at all and hid
+    # the failure in the except branch below.
+    api_user = os.getenv("H2S_API_USER", "admin")
+    api_pass = os.getenv("H2S_API_PASSWORD", "admin123")
+
+    posted = False
     try:
         req = urllib.request.Request(f"{backend_url}/health", method="GET")
         with urllib.request.urlopen(req, timeout=3) as response:
             health = json.loads(response.read())
             print(f"  • Backend Service Connection: CONNECTED (status: {health.get('status')})")
-            
+
+            # Authenticate first (form-encoded, per OAuth2PasswordRequestForm).
+            login_req = urllib.request.Request(
+                f"{backend_url}/auth/login",
+                data=urllib.parse.urlencode(
+                    {"username": api_user, "password": api_pass}).encode(),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+            )
+            with urllib.request.urlopen(login_req, timeout=5) as login_resp:
+                token = json.loads(login_resp.read())["access_token"]
+            print(f"  • Authenticated as '{api_user}' (JWT acquired)")
+
             # Post live prediction to backend for Worker WRK001
             sc_danger = processed_scenarios[2]
             reading_data = {
@@ -195,23 +220,42 @@ def main():
             post_req = urllib.request.Request(
                 f"{backend_url}/readings/",
                 data=json.dumps(reading_data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
                 method="POST"
             )
             with urllib.request.urlopen(post_req, timeout=5) as post_resp:
                 result = json.loads(post_resp.read())
+                posted = True
                 print(f"  • Live Reading Ingested & Saved into SQLite DB:")
                 print(f"    - Reading ID      : #{result.get('id')}")
                 print(f"    - Worker Monitored: {reading_data['worker_id']}")
                 print(f"    - Inferred Dose   : {result.get('dose_ppm_hr')} ppm·hr")
-                print(f"    - Auto-Alert Fired: {result.get('alert_triggered')} (Threshold exceeded)")
+                print(f"    - Auto-Alert Fired: {result.get('alert_triggered')} (decided by backend)")
                 print(f"    - Dashboard Sync  : Visible live at http://localhost:5173/#/dashboard")
 
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            pass
+        print(f"  • Backend returned HTTP {e.code}: {body}")
+        print(f"    (reading NOT ingested)")
     except Exception as e:
-        print(f"  • Note: Backend status: {e}. Integration payload tested.")
+        print(f"  • Backend not reachable at {backend_url}: {e}")
+        print(f"    (reading NOT ingested — start the backend to exercise this step)")
 
-    header("Summary & Verification Complete",
-           "All components (ML Pipeline, Backend API, Admin Dashboard) verified successfully!")
+    if posted:
+        header("Summary & Verification Complete",
+               "ML pipeline verified; live reading ingested by the backend.")
+    else:
+        header("Summary — ML pipeline verified, backend step SKIPPED",
+               "Colour science and inference ran locally. The backend was not "
+               "reached, so no reading was stored and no alert was raised.")
+
 
 if __name__ == "__main__":
     main()

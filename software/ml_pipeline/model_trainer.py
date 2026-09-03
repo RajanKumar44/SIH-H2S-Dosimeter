@@ -48,15 +48,24 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 TARGET_COL = "cumulative_dose_ppm_hr"
 
+# Feature columns read straight from the dataset CSV.
+#
+# HSV CONVENTION: H is in DEGREES on [0, 360), S and V on [0, 1] — the
+# canonical convention defined by `image_processor.rgb_to_hsv`, which is the
+# single producer used by both the simulator (training data) and
+# `process_strip_image` (inference). Do not feed raw
+# `cv2.cvtColor(..., COLOR_BGR2HSV)` output in here: on uint8 that is hue
+# 0-179 and S/V 0-255, i.e. half-scale hue, which silently mistrains the model.
 FEATURE_COLS = [
     "delta_E_corr",     # Primary: color difference from fresh baseline
     "L_corr",           # Lightness (darker = more exposed)
     "a_corr",           # Green-Red axis
     "b_corr",           # Blue-Yellow axis
-    "H", "S", "V",      # HSV components
+    "H", "S", "V",      # HSV components (H degrees 0-360, S/V 0-1)
     "R", "G", "B",      # Raw RGB
     "delta_E",          # Uncorrected deltaE for comparison
 ]
+
 
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -221,25 +230,48 @@ def train(csv_path: str, test_size: float = 0.2, random_state: int = 42) -> dict
 def predict(image_features: dict, model_path: str = "models/h2s_model.pkl") -> dict:
     """
     Predict H2S cumulative dose from a StripReading features dict.
-    Called by the mobile app backend.
+
+    This is the reference inference function (also the contract the future
+    mobile app should mirror).
 
     Args:
-        image_features: dict with keys matching feature columns
+        image_features: dict keyed like the dataset CSV columns. The easiest
+            correct way to build it is ``StripReading.features_for_model()``,
+            which handles the ``a``/``a_star`` naming difference. H must be in
+            degrees [0, 360) and S/V in [0, 1] — see FEATURE_COLS.
         model_path: Path to saved model .pkl
 
     Returns:
-        {"dose_ppm_hr": float, "confidence": str}
+        {"dose_ppm_hr": float, "confidence": str, "model": str}
+
+    Raises:
+        KeyError: if a required feature is absent, rather than letting pandas
+            substitute NaN and return a silently meaningless dose.
+        ValueError: if any engineered feature is non-finite.
     """
     payload = joblib.load(model_path)
     model = payload["model"]
     features = payload["features"]
     metadata = payload["metadata"]
 
+    # Fail loudly on a malformed feature dict. Without this, a missing key
+    # becomes NaN and the model still returns a number that looks plausible.
+    missing = [f for f in FEATURE_COLS if f in features and f not in image_features]
+    if missing:
+        raise KeyError(
+            f"predict() is missing required features: {missing}. "
+            f"Build the dict with StripReading.features_for_model()."
+        )
+
     # Engineer derived features
     df = pd.DataFrame([image_features])
     df = engineer_features(df)
 
     X = df[features].values
+    if not np.all(np.isfinite(X)):
+        bad = [f for f, v in zip(features, X[0]) if not np.isfinite(v)]
+        raise ValueError(f"Non-finite value(s) in features: {bad}")
+
     dose = float(model.predict(X)[0])
     dose = max(0.0, dose)  # Clip negative predictions
 
@@ -252,6 +284,7 @@ def predict(image_features: dict, model_path: str = "models/h2s_model.pkl") -> d
         "confidence": conf,
         "model": metadata.get("model_name", "unknown"),
     }
+
 
 
 if __name__ == "__main__":
