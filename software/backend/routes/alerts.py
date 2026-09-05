@@ -26,8 +26,18 @@ def check_and_create_alert(
     message: str,
 ) -> models.Alert:
     """
-    Create an alert for this worker. Avoids duplicate alerts for the same
-    type within the same shift_date.
+    Create an alert for this worker, or refresh the open one of the same type.
+
+    Avoids duplicate alerts: while an alert of this type is still
+    unacknowledged, a further breach updates that alert in place rather than
+    piling up a new row per scan.
+
+    The refresh updates ``message`` along with ``dose_at_alert``. It previously
+    did not, and because every caller embeds the dose in the message text
+    (``"... has reached 86.1 ppm.hr"``), a refreshed alert ended up
+    self-contradictory: ``dose_at_alert=92.071`` next to a message still
+    quoting the first breach. That row is what the alert feed shows and what
+    the DGMS compliance PDF prints, so the two must never disagree.
     """
     existing = db.query(models.Alert).filter(
         models.Alert.worker_id == worker.id,
@@ -36,10 +46,14 @@ def check_and_create_alert(
     ).first()
 
     if existing:
-        # Update dose on existing unacknowledged alert instead of creating duplicate
+        # Refresh the open alert in place — dose, message and source reading
+        # are updated together so the record stays internally consistent.
         existing.dose_at_alert = reading.dose_ppm_hr
         existing.reading_id = reading.id
+        existing.message = message
+        existing.threshold = threshold
         db.commit()
+        db.refresh(existing)
         return existing
 
     alert = models.Alert(
