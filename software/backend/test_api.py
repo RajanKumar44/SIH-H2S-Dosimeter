@@ -14,6 +14,7 @@ Usage:
     python test_api.py
 """
 
+import os
 import sys
 import time
 import json
@@ -33,6 +34,22 @@ FAIL = 0
 
 token = None
 
+# Sentinel meaning "caller did not pass an explicit token".
+#
+# Why this exists (real bug this suite used to hide):
+# the old signature was ``tok=None``, and the auth expression fell back to the
+# global admin ``token`` whenever ``tok`` was falsy. So if the officer login
+# ever failed, ``tok=officer_token`` became ``tok=None`` and every
+# "officer must be denied" assertion was silently re-issued **with the admin
+# token** — turning a role-enforcement test into an admin smoke test. That is
+# how "Officer CANNOT create worker" reported 201 and
+# "Officer CANNOT deactivate worker" reported 404: the request was never made
+# as the officer at all.
+#
+# With a sentinel, an explicit ``tok=<falsy>`` now means "send no credential"
+# and can never escalate to admin.
+_UNSET = object()
+
 
 def req(
     method,
@@ -41,12 +58,13 @@ def req(
     headers=None,
     form=False,
     use_token=True,
-    tok=None,
+    tok=_UNSET,
 ):
     """Simple HTTP request helper using only the Python standard library.
 
     use_token=False sends no Authorization header.
-    tok="..." sends that specific token instead of the global token.
+    tok="..."       sends that specific token instead of the global token.
+    tok=None/""     sends NO token (never falls back to the admin token).
     """
     url = BASE + path
 
@@ -55,7 +73,10 @@ def req(
         "Accept": "application/json",
     }
 
-    auth = tok if tok is not None else (token if use_token else None)
+    if tok is not _UNSET:
+        auth = tok           # explicit caller intent — no admin fallback
+    else:
+        auth = token if use_token else None
 
     if auth:
         hdrs["Authorization"] = f"Bearer {auth}"
@@ -92,8 +113,10 @@ def req(
         return 0, {"error": str(e)}
 
 
-def req_raw(method, path, use_token=True, tok=None):
+def req_raw(method, path, use_token=True, tok=_UNSET):
     """Request helper for binary responses such as PDF.
+
+    Uses the same no-escalation token rule as :func:`req`.
 
     Returns:
         (status, content_type, number_of_bytes)
@@ -102,7 +125,10 @@ def req_raw(method, path, use_token=True, tok=None):
 
     hdrs = {}
 
-    auth = tok if tok is not None else (token if use_token else None)
+    if tok is not _UNSET:
+        auth = tok
+    else:
+        auth = token if use_token else None
 
     if auth:
         hdrs["Authorization"] = f"Bearer {auth}"
@@ -160,18 +186,38 @@ def run_tests():
     print("  Seeding database first...")
 
     # Seed database before tests.
+    #
+    # This MUST be run by absolute path and with cwd pinned to the backend
+    # directory. Previously it was `[sys.executable, "seed.py"]` with the
+    # caller's cwd, so running the suite from anywhere other than
+    # software/backend made seeding fail with a bare [WARN] and the run
+    # continued against an UNSEEDED database. Every downstream fixture
+    # (officer1, WRK004, WRK008) was then missing, which is the real origin
+    # of the reported failures:
+    #   * officer1 login failed  -> role tests silently ran as admin
+    #   * WRK008 absent          -> DELETE returned 404
+    #   * WRK004 absent          -> "Active worker 'WRK004' not found."
+    #
+    # Seeding is a hard precondition, so a failure now aborts the run instead
+    # of producing misleading assertion results.
     import subprocess
 
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+
     result = subprocess.run(
-        [sys.executable, "seed.py"],
+        [sys.executable, os.path.join(backend_dir, "seed.py")],
         capture_output=True,
         text=True,
+        cwd=backend_dir,
     )
 
     if result.returncode != 0:
-        print(f"  [WARN] Seed failed: {result.stderr[:200]}")
-    else:
-        print("  [OK] Database seeded")
+        print(f"  [FATAL] Seed failed — cannot trust any result below.")
+        print(f"          stderr: {result.stderr[-500:]}")
+        print(f"          stdout: {result.stdout[-300:]}")
+        return False
+
+    print("  [OK] Database seeded")
 
     # ── Health ──────────────────────────────────────────────
 
@@ -311,7 +357,19 @@ def run_tests():
     check(
         "officer1 can log in",
         status == 200 and officer_token is not None,
+        f"got {status} {str(body)[:120]}",
     )
+
+    # The three checks below are the ONLY role-enforcement assertions in the
+    # suite. If the officer token is missing they cannot test anything, and
+    # (before the _UNSET fix) they would have re-run as admin and reported
+    # bogus 201/404 results. Fail explicitly instead of testing the wrong role.
+    if not officer_token:
+        check(
+            "officer role checks executable (officer token present)",
+            False,
+            "officer1 login produced no token — role enforcement NOT verified",
+        )
 
     status, _ = req(
         "GET",

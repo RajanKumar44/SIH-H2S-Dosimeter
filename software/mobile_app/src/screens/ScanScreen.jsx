@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CameraCapture from "../components/CameraCapture";
 import { ApiError, api, getLastWorker, setLastWorker } from "../lib/api";
 
@@ -36,6 +36,19 @@ export default function ScanScreen({ onResult, onError }) {
     };
   }, [image]);
 
+  // Roster refresh trigger. The roster lives in the backend and can change
+  // while the app is open (an admin adds a worker, or the backend was still
+  // waking up on the first try). Bumping this re-runs the fetch below, which
+  // is what the Retry button and the resume-from-background handler do.
+  const [rosterNonce, setRosterNonce] = useState(0);
+  const reloadWorkers = useCallback(() => {
+    // Reset the panel from the event that caused the reload, not from inside
+    // the effect, so no extra render pass is triggered.
+    setLoadingWorkers(true);
+    setWorkersError("");
+    setRosterNonce((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -44,7 +57,15 @@ export default function ScanScreen({ onResult, onError }) {
         if (!alive) return;
         const active = (rows || []).filter((w) => w.is_active !== false);
         setWorkers(active);
-        setWorkerId((cur) => cur || active[0]?.worker_id || "");
+        // Keep the remembered worker ONLY if it is still in the active roster.
+        // A stale localStorage code (worker deactivated/renamed, or a reset
+        // demo database) otherwise stays selected and every scan 404s with
+        // "Active worker '...' not found."
+        setWorkerId((cur) =>
+          active.some((w) => w.worker_id === cur)
+            ? cur
+            : active[0]?.worker_id || "",
+        );
       } catch (err) {
         if (!alive) return;
         if (err instanceof ApiError && err.kind === "auth") {
@@ -63,7 +84,23 @@ export default function ScanScreen({ onResult, onError }) {
     return () => {
       alive = false;
     };
-  }, [onError]);
+  }, [onError, rosterNonce]);
+
+  // The roster is fetched once on mount, so a worker added afterwards was
+  // invisible until the app was killed and reopened. Re-fetch when the app
+  // comes back to the foreground (Android backgrounds the webview freely) and
+  // when connectivity returns after a failed first load.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reloadWorkers();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", reloadWorkers);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", reloadWorkers);
+    };
+  }, [reloadWorkers]);
 
   function clearImage() {
     if (image) URL.revokeObjectURL(image.previewUrl);
@@ -121,13 +158,35 @@ export default function ScanScreen({ onResult, onError }) {
             <span className="spinner" aria-hidden="true" /> Loading roster…
           </div>
         ) : workersError ? (
-          <p className="inline-error" role="alert">
-            {workersError}
-          </p>
+          <>
+            <p className="inline-error" role="alert">
+              {workersError}
+            </p>
+            <button
+              type="button"
+              className="btn btn-outline btn-block"
+              onClick={reloadWorkers}
+            >
+              Retry
+            </button>
+          </>
         ) : workers.length === 0 ? (
-          <p className="inline-warn">
-            No active workers found. Add a worker in the admin dashboard first.
-          </p>
+          <>
+            {/* The roster genuinely lives in the backend, so this is accurate
+                reporting — but it used to be a dead end: the fetch ran only on
+                mount, so a worker added in the dashboard stayed invisible. */}
+            <p className="inline-warn">
+              No active workers found. Add a worker in the admin dashboard, then
+              reload the roster.
+            </p>
+            <button
+              type="button"
+              className="btn btn-outline btn-block"
+              onClick={reloadWorkers}
+            >
+              Reload roster
+            </button>
+          </>
         ) : (
           <>
             <label className="field">
