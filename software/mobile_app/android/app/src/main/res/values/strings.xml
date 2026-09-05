@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">H2S Dosimeter</string>
+    <string name="title_activity_main">H2S Dosimeter</string>
+    <string name="package_name">com.sih.h2sdosimeter</string>
+    <string name="custom_url_scheme">com.sih.h2sdosimeter</string>
+</resources>

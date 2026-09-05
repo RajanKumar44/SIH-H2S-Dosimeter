@@ -80,3 +80,22 @@ archive/
 # OS
 .DS_Store
 desktop.ini
+
+# Android SDK downloaded into the workspace for sandbox/CI builds (multi-GB)
+.android-sdk/
+
+# Capacitor / Android build products (regenerate with: npm run build && npx cap sync android)
+software/mobile_app/android/.gradle/
+software/mobile_app/android/build/
+software/mobile_app/android/app/build/
+software/mobile_app/android/capacitor-cordova-android-plugins/build/
+software/mobile_app/android/local.properties
+software/mobile_app/android/app/src/main/assets/public/
+software/mobile_app/android/app/src/main/assets/capacitor.config.json
+software/mobile_app/android/app/src/main/assets/capacitor.plugins.json
+software/mobile_app/dist/
+software/mobile_app/node_modules/
+node_modules/
+
+# Python virtualenv
+software/backend/.venv/

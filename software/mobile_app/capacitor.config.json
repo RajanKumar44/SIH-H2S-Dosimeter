@@ -1,0 +1,11 @@
+{
+  "appId": "com.sih.h2sdosimeter",
+  "appName": "H2S Dosimeter",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
