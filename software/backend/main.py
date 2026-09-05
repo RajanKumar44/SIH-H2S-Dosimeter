@@ -23,6 +23,7 @@ from datetime import date
 from database import get_db, init_db
 from auth import verify_password, create_access_token, hash_password, get_current_officer
 import models, schemas
+from bootstrap import ensure_demo_workers
 from config import CORS_ORIGINS, CORS_ORIGIN_REGEX
 from routes import workers, readings, alerts, reports, dashboard
 
@@ -32,7 +33,22 @@ log = logging.getLogger(__name__)
 # ── Lifespan (startup / shutdown) ────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize DB tables and create the default admin if none exists."""
+    """
+    Initialize DB tables, create the default admin, and make sure a worker
+    roster exists.
+
+    The roster step matters on deployed instances: this app's database is
+    created from ``create_all()`` on startup, and on hosts with an ephemeral
+    disk (Render free tier) that means a brand-new, empty database after every
+    deploy or cold start. Previously only the admin account was created, so
+    ``GET /workers/?active_only=true`` returned ``[]`` and the field app showed
+    "No active workers found" with no non-destructive way to fix it remotely
+    (``seed.py`` wipes every table, so it must never run against a deployment).
+
+    ``bootstrap.ensure_demo_workers`` is insert-only and idempotent — it never
+    touches a roster entered through the dashboard, and it adds no readings or
+    alerts. Disable it with ``BOOTSTRAP_DEMO_WORKERS=false``.
+    """
     init_db()
     db = next(get_db())
     try:
@@ -51,6 +67,19 @@ async def lifespan(app: FastAPI):
             print("[STARTUP] Default admin created: admin / admin123")
         else:
             print("[STARTUP] Database ready.")
+
+        try:
+            result = ensure_demo_workers(db)
+            if not result["enabled"]:
+                print(f"[STARTUP] Worker bootstrap disabled ({result['total']} workers present).")
+            elif result["created"]:
+                print(f"[STARTUP] Bootstrapped workers: {', '.join(result['created'])}")
+            else:
+                print(f"[STARTUP] Worker roster ready ({result['total']} workers).")
+        except Exception as e:                                  # noqa: BLE001
+            # A roster problem must never stop the API from serving.
+            log.error("Worker bootstrap failed: %s", e)
+            print(f"[STARTUP] WARNING: worker bootstrap failed: {e}")
     finally:
         db.close()
     yield
@@ -138,6 +167,18 @@ def health_check(db: Session = Depends(get_db)):
         log.error("Health check DB error: %s", e)
         db_status = "error"
 
+    # Roster size is reported because an empty roster is indistinguishable from
+    # a broken /workers call when seen from the phone ("No active workers
+    # found"). Exposing the count on the public health endpoint turns that into
+    # a one-request diagnosis instead of a guess.
+    try:
+        active_workers = db.query(models.Worker).filter(
+            models.Worker.is_active == True
+        ).count()
+    except Exception as e:                                  # noqa: BLE001
+        log.error("Health check worker count error: %s", e)
+        active_workers = None
+
     # Import here so the rest of the app (and the offline tests) never pull in
     # the ML bridge just to answer /health.
     try:
@@ -157,6 +198,7 @@ def health_check(db: Session = Depends(get_db)):
     return {
         "status": "ok",
         "database": db_status,
+        "active_workers": active_workers,
         "ml": ml,
         "date": date.today().isoformat(),
         "version": "1.0.0",
