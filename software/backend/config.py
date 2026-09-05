@@ -53,16 +53,104 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "480"))  # 8
 #   * dashboard  — Vite dev server on :5173 (software/dashboard)
 #   * mobile PWA — Vite dev server on :5174 (software/mobile_app)
 # Never use "*" together with credentials in production.
-_DEFAULT_CORS_ORIGINS = ",".join(
+_DEV_SERVER_ORIGINS = tuple(
     f"http://{host}:{port}"
     for host in ("localhost", "127.0.0.1")
     for port in (5173, 5174)
 )
-CORS_ORIGINS = [
-    o.strip().rstrip("/")
-    for o in os.getenv("CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",")
-    if o.strip()
-]
+
+# ── Capacitor / Cordova native WebView origins ──────────────
+# The Android build (software/mobile_app + Capacitor) does NOT run on an
+# http://<lan-ip>:<port> origin. Inside the native WebView the page is served
+# from the app bundle, so the browser sends one of these fixed Origin headers
+# depending on platform / Capacitor `server.androidScheme` configuration:
+#
+#   https://localhost        Android, androidScheme: "https"  (Capacitor 4+ default)
+#   http://localhost         Android, androidScheme: "http"   (legacy)
+#   capacitor://localhost    iOS / Capacitor custom scheme
+#   ionic://localhost        legacy Ionic WebView scheme
+#
+# None of these can be matched by the dev LAN regex below:
+#   * "capacitor://" / "ionic://" are not http(s) schemes at all, and Starlette's
+#     allow_origin_regex is anchored against the literal Origin header.
+#   * the regex is disabled entirely in production (IS_PRODUCTION).
+#
+# That is exactly why the phone showed "Cannot reach the server" while
+# https://sih-h2s-backend.onrender.com/health opened fine in Chrome: the
+# backend was up, but the preflight/actual response carried no
+# Access-Control-Allow-Origin for the native origin, so the WebView killed
+# the request before the app ever saw a response.
+#
+# These origins are therefore ALWAYS appended to the allow-list (in production
+# too) unless explicitly disabled with ALLOW_NATIVE_APP_ORIGINS=false. They are
+# a fixed, finite, non-guessable-by-attacker set — a malicious website cannot
+# make a browser send `Origin: capacitor://localhost`.
+NATIVE_APP_ORIGINS = (
+    "https://localhost",
+    "http://localhost",
+    "capacitor://localhost",
+    "ionic://localhost",
+)
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    """Parse a boolean environment variable ('0', 'false', 'no', 'off' → False)."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
+
+
+ALLOW_NATIVE_APP_ORIGINS = _env_flag("ALLOW_NATIVE_APP_ORIGINS", True)
+
+# ── Deployed web origins ────────────────────────────────────
+# The dashboard / PWA is deployed on Vercel. Its production origin must be
+# allowed by default so a fresh Render deploy works without first having to
+# set CORS_ORIGINS by hand.
+DEPLOYED_WEB_ORIGINS = (
+    "https://sih-h2s-dosimeter.vercel.app",
+)
+
+_DEFAULT_CORS_ORIGINS = ",".join(_DEV_SERVER_ORIGINS + DEPLOYED_WEB_ORIGINS)
+
+
+def _normalize_origin(origin: str) -> str:
+    """Trim whitespace and any trailing slash so comparisons are exact."""
+    return origin.strip().rstrip("/")
+
+
+def build_cors_origins(
+    raw: str | None = None,
+    allow_native: bool | None = None,
+) -> list[str]:
+    """Build the final, de-duplicated CORS allow-list.
+
+    ``raw``  — the CORS_ORIGINS value (None → the built-in default list).
+    ``allow_native`` — None → use the ALLOW_NATIVE_APP_ORIGINS setting.
+
+    The native WebView origins are merged in *after* the configured list, so an
+    operator who overrides CORS_ORIGINS for the dashboard cannot accidentally
+    break the Android app. Order is preserved and duplicates removed.
+    """
+    if raw is None:
+        raw = _DEFAULT_CORS_ORIGINS
+    if allow_native is None:
+        allow_native = ALLOW_NATIVE_APP_ORIGINS
+
+    configured = [_normalize_origin(o) for o in raw.split(",") if o.strip()]
+    if allow_native:
+        configured += [_normalize_origin(o) for o in NATIVE_APP_ORIGINS]
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for origin in configured:
+        if origin and origin not in seen:
+            seen.add(origin)
+            ordered.append(origin)
+    return ordered
+
+
+CORS_ORIGINS = build_cors_origins(os.getenv("CORS_ORIGINS"))
 
 # The field mobile app runs on a phone, so its origin is never one of the fixed
 # localhost entries above and cannot be known ahead of time. Two shapes occur:
