@@ -17,6 +17,26 @@
 
 const DEFAULT_BASE = "http://localhost:8000";
 
+/**
+ * Backend used by the packaged Android/iOS build.
+ *
+ * Why this constant is necessary
+ * ------------------------------
+ * Inside a Capacitor WebView the app is served from the app bundle, so
+ * `window.location.hostname` is **"localhost"** (or the capacitor:// custom
+ * scheme host) — NOT the laptop, and not a LAN IP. The generic resolution
+ * below therefore fell through to DEFAULT_BASE and the installed APK tried to
+ * call `http://localhost:8000`, i.e. **port 8000 on the phone itself**, where
+ * nothing is listening. Every request failed instantly and the app reported
+ * "Cannot reach the server" even though the same phone could open
+ * https://sih-h2s-backend.onrender.com/health in Chrome.
+ *
+ * A packaged app has no dev server to infer an address from, so the deployed
+ * backend has to be compiled in. It stays overridable: VITE_API_BASE at build
+ * time and the in-app Settings screen at runtime both still win.
+ */
+const NATIVE_DEFAULT_BASE = "https://sih-h2s-backend.onrender.com";
+
 const BASE_KEY = "h2s_mobile_api_base";
 const TOKEN_KEY = "h2s_mobile_token";
 const WORKER_KEY = "h2s_mobile_last_worker";
@@ -66,11 +86,51 @@ export function derivePreviewApiBase(hostname, protocol = "https:") {
   return `${protocol}//${BACKEND_PORT}-${m[2]}`;
 }
 
+/**
+ * True when the page is running inside a Capacitor/Cordova native WebView
+ * rather than a normal browser tab.
+ *
+ * Detection order matters — the reliable signals first:
+ *   1. `window.Capacitor.isNativePlatform()` — injected by the Capacitor
+ *      runtime; authoritative when present.
+ *   2. `window.Capacitor.platform` / `window.cordova` — older runtimes.
+ *   3. A capacitor:// or ionic:// page protocol — the custom-scheme case,
+ *      which is unmistakable.
+ *
+ * A bare "localhost" hostname is deliberately NOT treated as native on its
+ * own: `npm run dev` also serves on localhost, and mis-detecting the dev
+ * server would silently redirect a developer's requests to the production
+ * Render backend.
+ */
+export function isNativeApp(win = typeof window !== "undefined" ? window : undefined) {
+  if (!win) return false;
+
+  const cap = win.Capacitor;
+  if (cap) {
+    if (typeof cap.isNativePlatform === "function") {
+      try {
+        if (cap.isNativePlatform()) return true;
+      } catch {
+        /* fall through to the other signals */
+      }
+    }
+    if (typeof cap.platform === "string" && cap.platform !== "web") return true;
+  }
+  if (win.cordova) return true;
+
+  const proto = win.location?.protocol || "";
+  return proto === "capacitor:" || proto === "ionic:";
+}
+
 export function getApiBase() {
   const stored = localStorage.getItem(BASE_KEY);
   if (stored && stored.trim()) return stored.replace(/\/+$/, "");
   const fromEnv = envBase();
   if (fromEnv) return fromEnv.replace(/\/+$/, "");
+
+  // Packaged native build: there is no dev server to infer an address from and
+  // "localhost" means the handset, so use the deployed backend.
+  if (isNativeApp()) return NATIVE_DEFAULT_BASE;
 
   const { hostname, protocol } = window.location;
   if (!hostname || hostname === "localhost" || hostname === "127.0.0.1") {
